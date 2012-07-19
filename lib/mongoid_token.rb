@@ -13,7 +13,7 @@ module Mongoid
         options[:field_name] ||= :token
 
         self.field options[:field_name].to_sym, :type => String
-        self.index options[:field_name].to_sym, :unique => true
+        self.index({ options[:field_name].to_sym => 1 }, { :unique => true })
         # should validate token presence? Should this be enforced?
 
         set_callback(:create, :before) do |document|
@@ -32,8 +32,8 @@ module Mongoid
         end
 
         if options[:retry] > 0
-          alias_method_chain :save, :safety
-          alias_method_chain :save!, :safety
+          alias_method_chain :insert, :safety
+          alias_method_chain :upsert, :safety
         end
 
         self.class_variable_set :@@token_field_name, options[:field_name]
@@ -41,7 +41,7 @@ module Mongoid
 
       def find_by_token(token)
         field_name = self.class_variable_get :@@token_field_name
-        self.first(:conditions => {field_name.to_sym => token})
+        self.where(field_name.to_sym => token).first
       end
     end
 
@@ -50,12 +50,12 @@ module Mongoid
     end
 
     protected
-    def save_with_safety(args = {}, &block)
+
+    def resolve_token_collisions
       retries = @max_collision_retries
       begin
-       # puts "Attempt: #{retries}"
-        safely.save_without_safety(args, &block)
-      rescue Mongo::OperationFailure => e
+        yield
+      rescue Moped::Errors::OperationFailure => e
         if (retries -= 1) > 0
           self.create_token(@token_length, @token_contains)
           retry
@@ -63,28 +63,21 @@ module Mongoid
           Rails.logger.warn "[Mongoid::Token] Warning: Maximum to generation retries (#{@max_collision_retries}) exceeded." if defined?(Rails) && Rails.env == 'development'
           raise Mongoid::Token::CollisionRetriesExceeded.new(self, @max_collision_retries)
         end
+      # rescue Exception => e
+      # puts e.inspect
       end
     end
 
-    def save_with_safety!(args = {}, &block)
-      retries = @max_collision_retries
-      begin
-        #puts "Attempt: #{retries}"
-        safely.save_without_safety!(args, &block)
-      rescue Mongo::OperationFailure => e
-        if (retries -= 1) > 0
-          self.create_token(@token_length, @token_contains)
-          retry
-        else
-          Rails.logger.warn "[Mongoid::Token] Warning: Maximum to generation retries (#{@max_collision_retries}) exceeded." if defined?(Rails) && Rails.env == 'development'
-          raise Mongoid::Token::CollisionRetriesExceeded.new(self, @max_collision_retries)
-        end
-      end
+    def insert_with_safety(options = {})
+      resolve_token_collisions { with(safe: true).insert_without_safety(options) }
+    end
+
+    def upsert_with_safety(options = {})
+      resolve_token_collisions { with(safe: true).upsert_without_safety(options) }
     end
 
     def create_token(length, characters)
       self.send(:"#{@token_field_name}=", self.generate_token(length, characters))
-      #puts "Set #{@token_field_name.to_s} to #{self.send(@token_field_name.to_sym)}"
     end
 
     def create_token_if_nil(length, characters)

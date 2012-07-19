@@ -6,10 +6,10 @@ gemspec
 group :test do
   gem 'activesupport', '~> 3.0'
   gem 'database_cleaner'
-  gem 'rspec', '2.5.0'
+  gem 'rspec'
   gem 'autotest'
   gem 'autotest-growl'
-  gem 'mongoid', '2.0.0'
+  gem 'mongoid', '~> 3.0.0'
   gem 'bson_ext'
   gem 'mongoid-rspec'
 end
